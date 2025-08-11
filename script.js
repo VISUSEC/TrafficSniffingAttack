@@ -1,296 +1,219 @@
-// IPアドレス生成のためのヘルパー関数 (グローバルスコープ)
-function generateRandomIp() {
-    return Array(4).fill(0).map(() => Math.floor(Math.random() * 255)).join('.');
-}
-
 document.addEventListener('DOMContentLoaded', () => {
-    const currentConnectionSpan = document.getElementById('current-connection');
-    const connectFreeWifiBtn = document.getElementById('connect-free-wifi');
-    const connectHomeWifiBtn = document.getElementById('connect-home-wifi');
-    const toggleVpnBtn = document.getElementById('toggle-vpn');
-
-    const loginHttpBtn = document.getElementById('login-http-btn');
-    const loginHttpsBtn = document.getElementById('login-https-btn');
-    const purchaseHttpBtn = document.getElementById('purchase-http-btn');
-    const purchaseHttpsBtn = document.getElementById('purchase-https-btn');
-
-    const usernameInput = document.getElementById('un-input');
-    const passwordInput = document.getElementById('ps-input');
-    const ccInput = document.getElementById('cc-input');
-    const cvvInput = document.getElementById('cvv-input');
-
-    const filterInput = document.getElementById('filter-input');
-    const applyFilterBtn = document.getElementById('apply-filter-btn');
-    const clearFilterBtn = document.getElementById('clear-filter-btn');
-    const packetLogElement = document.getElementById('packet-log');
+    // --- DOM要素の取得 ---
+    const scenarioButtons = document.querySelectorAll('.scenario-btn');
     const messageArea = document.getElementById('message-area');
-    const resetButton = document.getElementById('reset-button');
+    const certStatus = document.getElementById('cert-status');
+    const urlText = document.getElementById('url-text');
+    const siteContentWrapper = document.getElementById('site-content-wrapper');
+    const packetLog = document.getElementById('packet-log');
+    const modal = document.getElementById('cert-modal');
+    const modalTitle = document.getElementById('modal-title');
+    const modalBody = document.getElementById('modal-body');
+    const modalExplanation = document.getElementById('modal-explanation');
+    const modalCloseBtn = document.querySelector('.modal-close-btn');
+    const errorDialog = document.getElementById('error-dialog');
+    const closeDialogBtn = document.getElementById('close-dialog-btn');
 
-    // 状態変数
-    let connection = {
-        type: 'free-unencrypted', // 'free-unencrypted', 'home-encrypted'
-        vpnActive: false
+    // --- シナリオの定義 ---
+    const scenarios = {
+        1: { name: '① Free Wi-Fi + HTTP', protocol: 'http', vpn: false, dnsPoisoning: false },
+        2: { name: '② Free Wi-Fi + HTTPS', protocol: 'https', vpn: false, dnsPoisoning: false },
+        3: { name: '③ Free Wi-Fi + VPN/HTTP', protocol: 'http', vpn: true, dnsPoisoning: false },
+        4: { name: '④ Free Wi-Fi + VPN/HTTPS', protocol: 'https', vpn: true, dnsPoisoning: false },
+        5: { name: '⑤ 偽Wi-Fi + HTTPS', protocol: 'https', vpn: false, dnsPoisoning: true },
+        6: { name: '⑥ 偽Wi-Fi + VPN', protocol: 'https', vpn: true, dnsPoisoning: true }
     };
 
-    const userActionsData = {
-        'login-http': {
-            protocol: 'HTTP', dest: 'login.bank.com', content: (u, p) => `GET /auth HTTP/1.1\nHost: login.bank.com\n\nUser-Agent: ...\n\nusername=${u}&password=${p}`, content_plain: (u, p) => `user:${u}, pass:${p}`, sensitive: true, type: 'login'
-        },
-        'login-https': {
-            protocol: 'HTTPS', dest: 'login.bank.com', content: '[Encrypted Login Data]', sensitive: true, type: 'login'
-        },
-        'purchase-http': {
-            protocol: 'HTTP', dest: 'shop.buyit.com', content: (cc, cvv) => `POST /checkout HTTP/1.1\nHost: shop.buyit.com\n\nCard=${cc}&CVV=${cvv}`, content_plain: (cc, cvv) => `CC:${cc}, CVV:${cvv}`, sensitive: true, type: 'cc'
-        },
-        'purchase-https': {
-            protocol: 'HTTPS', dest: 'shop.buyit.com', content: '[Encrypted Credit Card Data]', sensitive: true, type: 'cc'
-        }
-    };
+    // --- アプリの状態管理 ---
+    let currentState = {};
+    let currentPage = 'top';
 
-    let allLogs = []; // フィルター適用前の全ログ
-
-    // UI更新関数
-    function updateUI() {
-        let connText = '';
-        currentConnectionSpan.classList.remove('unencrypted', 'vpn-active');
-        if (connection.vpnActive) {
-            connText = 'VPN接続中';
-            currentConnectionSpan.classList.add('vpn-active');
-        } else if (connection.type === 'free-unencrypted') {
-            connText = 'Free Wi-Fi (暗号化なし)';
-            currentConnectionSpan.classList.add('unencrypted');
-        } else {
-            connText = '自宅Wi-Fi (暗号化あり)';
-        }
-        currentConnectionSpan.textContent = connText;
-
-        document.querySelectorAll('.conn-btn').forEach(btn => btn.classList.remove('active'));
-        if (connection.type === 'free-unencrypted' && !connection.vpnActive) {
-            connectFreeWifiBtn.classList.add('active');
-        } else if (connection.type === 'home-encrypted' && !connection.vpnActive) {
-            connectHomeWifiBtn.classList.add('active');
-        }
-        if (connection.vpnActive) {
-            toggleVpnBtn.classList.add('active');
-        } else {
-            toggleVpnBtn.classList.remove('active');
+    // --- ページ描画関数 ---
+    function renderPage() {
+        switch (currentPage) {
+            case 'top':
+                siteContentWrapper.innerHTML = `
+                    <div class="page-container">
+                        <h2>ABC App へようこそ！</h2>
+                        <p>当サービスをご利用いただきありがとうございます。</p>
+                        <a href="#" id="goto-login-btn" class="page-btn">ログインページへ</a>
+                    </div>
+                `;
+                document.getElementById('goto-login-btn').addEventListener('click', (e) => {
+                    e.preventDefault();
+                    navigateTo('login');
+                });
+                break;
+            case 'login':
+                siteContentWrapper.innerHTML = `
+                    <div class="page-container login-form">
+                        <h2>ログイン</h2>
+                        <label for="username">ユーザー名 (user)</label>
+                        <input type="text" id="username">
+                        <label for="password">パスワード (password)</label>
+                        <input type="text" id="password">
+                        <button id="login-submit-btn" class="page-btn">ログイン</button>
+                    </div>
+                `;
+                document.getElementById('login-submit-btn').addEventListener('click', handleLogin);
+                break;
+            case 'mypage':
+                const username = (currentState.dnsPoisoning && !currentState.vpn) ? document.getElementById('username')?.value || 'user' : 'user';
+                siteContentWrapper.innerHTML = `
+                    <div class="page-container">
+                        <h2>マイページ</h2>
+                        <p>ようこそ、${username}さん！</p>
+                    </div>
+                `;
+                break;
         }
     }
+    
+    // --- UI更新 & ナビゲーション ---
+    function updateBrowserUI() {
+        const path = currentPage === 'top' ? '/' : `/${currentPage}/`;
+        const baseUrl = 'abc-app.com';
+        urlText.textContent = `${currentState.protocol}://${baseUrl}${path}`;
 
-    // パケットログの追加
-    function addPacketLog(packet) {
-        allLogs.unshift(packet); // ★修正：新しいログを常に先頭に追加
-        if (allLogs.length > 100) allLogs.pop(); // ログが多すぎたら古いものを削除
-        renderPacketLog(); // ログ表示を更新
-    }
-
-    // パケットログのレンダリング (フィルター適用)
-    function renderPacketLog() {
-        packetLogElement.innerHTML = ''; // 全体をクリアして再描画
-        const filterText = filterInput.value.toLowerCase();
+        const isHttps = currentState.protocol === 'https';
+        // ブラウザから見て安全か = (HTTPS接続 かつ (DNS偽装がない または VPNがある))
+        const isSecureInBrowser = isHttps && (!currentState.dnsPoisoning || currentState.vpn);
         
-        let latestLogMessage = '操作を開始してください。'; // メッセージエリアの初期値
-        let latestMessageColor = '#856404'; // メッセージ色の初期値
+        certStatus.classList.remove('secure', 'insecure');
+        if (isSecureInBrowser) {
+            certStatus.textContent = '安全な通信';
+            certStatus.classList.add('secure');
+        } else {
+            certStatus.textContent = '保護されていません';
+            certStatus.classList.add('insecure');
+        }
 
-        const logsToRender = allLogs.filter(log => {
-            const logString = `${log.time} ${log.sourceIp} ${log.destIp} ${log.protocol} ${log.content} ${log.content_plain}`.toLowerCase();
-            return logString.includes(filterText);
+        if (currentState.dnsPoisoning && !currentState.vpn) {
+            certStatus.textContent = 'プライバシーエラー';
+        }
+    }
+
+    function navigateTo(page) {
+        currentPage = page;
+        updateBrowserUI();
+        renderPage();
+    }
+    
+    // --- イベント処理 ---
+    scenarioButtons.forEach(btn => {
+        btn.addEventListener('click', () => {
+            const scenarioId = btn.dataset.scenario;
+            currentState = scenarios[scenarioId];
+            scenarioButtons.forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            
+            packetLog.innerHTML = '';
+            if (currentState.dnsPoisoning) {
+                addPacketLog('攻撃者', 'SYSTEM', 'INFO', '偽APを起動。DNS偽装を試行中...', 'log-highlight');
+            }
+            messageArea.textContent = `${currentState.name}: TOPページが表示されています。「ログインページへ」ボタンを押してください。`;
+            navigateTo('top');
         });
+    });
 
-        logsToRender.forEach(log => { // filteredLogsは定義されていないので、logsToRenderを使用
-            const logEntry = document.createElement('div');
-            logEntry.classList.add('log-entry');
+    function handleLogin() {
+        const username = document.getElementById('username').value;
+        const password = document.getElementById('password').value;
+        const userIp = '192.168.1.10', siteIp = '203.0.113.88', vpnServerIp = '198.51.100.1', attackerFakeServerIp = '10.0.0.5';
 
-            let contentDisplay = '';
-            let messageForThisLog = ''; // このログ専用のメッセージ
-
-            // VPNがアクティブな場合、すべてのログコンテンツをVPNトンネルとして表示
-            if (log.vpnActive) {
-                contentDisplay = `<span class="log-protocol">VPN(OpenVPN Data)</span>: <span class="log-vpn-encrypted">[Encrypted Tunnel]</span> <span class="log-hidden-info">(アクセス先IP: ${log.destIp})</span>`;
-                messageForThisLog = `VPN接続中：あなたの通信は強固に暗号化され、アクセス先も秘匿されています！`;
-                messageColor = '#6f42c1';
-            } 
-            // HTTPS通信の場合
-            else if (log.protocol === 'HTTPS') {
-                contentDisplay = `<span class="log-protocol">HTTPS(TLSv1.2)</span>: <span class="log-content">[Encrypted Application Data]</span>`;
-                messageForThisLog = `通信は暗号化されているため安全です。`;
-                messageColor = '#28a745';
-            } 
-            // 非暗号化Free Wi-Fiかつ機密情報の場合
-            else if (log.sensitive && !log.vpnActive && log.connectionType === 'free-unencrypted') {
-                contentDisplay = `<span class="log-protocol">HTTP</span>: <span class="log-highlight">${log.content_plain}</span>`;
-                if (log.type === 'login') messageForThisLog = `警告！Free Wi-Fi (暗号化なし) でログイン情報が盗聴されました: ${log.content_plain}`;
-                if (log.type === 'cc') messageForThisLog = `警告！Free Wi-Fi (暗号化なし) でクレジットカード情報が盗聴されました: ${log.content_plain}`;
-                messageColor = '#dc3545';
-            } 
-            // 暗号化Wi-FiでもHTTP通信かつ機密情報の場合
-            else if (log.sensitive && !log.vpnActive && log.connectionType === 'home-encrypted' && log.protocol === 'HTTP') {
-                 contentDisplay = `<span class="log-protocol">HTTP</span>: <span class="log-highlight">${log.content_plain}</span>`;
-                 messageForThisLog = `警告！暗号化Wi-FiでもHTTP通信は丸見えです！: ${log.content_plain}`;
-                 messageColor = '#dc3545';
-            }
-            else { // その他の一般通信
-                contentDisplay = `<span class="log-protocol">${log.protocol}</span>: <span class="log-content">${log.content}</span>`;
-                messageForThisLog = '操作を開始してください。'; // デフォルトの操作ガイダンス
-                messageColor = '#856404';
-            }
-
-            // メッセージエリアはループ内で更新せず、後で最新のものを設定する
-            // latestLogMessage = messageForThisLog; // これを最終メッセージにする
-            // latestMessageColor = messageColor;
-
-            logEntry.innerHTML = `
-                <div>
-                  <span class="log-time">[${log.time}]</span>
-                  <span class="log-source">${log.sourceIp}</span> ->
-                  <span class="log-dest">${log.destIp}</span>
-                </div>
-                ${contentDisplay}
-            `;
-            packetLogElement.appendChild(logEntry); // ★修正：常に下に追加 (フィルタリングされたリスト順)
-        });
-
-        // フィルター後のログリストの先頭（最新）のメッセージをmessageAreaに設定
-        if (logsToRender.length > 0) {
-            const latestLog = logsToRender[0]; // allLogsはunshiftしているので、filteredLogsの先頭が最新
-             if (latestLog.vpnActive) {
-                latestLogMessage = `VPN接続中：あなたの通信は強固に暗号化され、アクセス先も秘匿されています！`;
-                latestMessageColor = '#6f42c1';
-            } else if (latestLog.protocol === 'HTTPS') {
-                latestLogMessage = `通信は暗号化されているため安全です。`;
-                latestMessageColor = '#28a745';
-            } else if (latestLog.sensitive && !latestLog.vpnActive && latestLog.connectionType === 'free-unencrypted') {
-                latestLogMessage = `警告！Free Wi-Fi (暗号化なし) で${latestLog.type === 'login' ? 'ログイン情報' : 'クレジットカード情報'}が盗聴されました: ${latestLog.content_plain}`;
-                latestMessageColor = '#dc3545';
-            } else if (latestLog.sensitive && !latestLog.vpnActive && latestLog.connectionType === 'home-encrypted' && latestLog.protocol === 'HTTP') {
-                latestLogMessage = `警告！暗号化Wi-FiでもHTTP通信は丸見えです！: ${latestLog.content_plain}`;
-                latestMessageColor = '#dc3545';
-            } else {
-                latestLogMessage = '操作を開始してください。';
-                latestMessageColor = '#856404';
-            }
-        } else {
-            latestLogMessage = '表示するパケットがありません。'; // フィルターで何も表示されない場合
-            latestMessageColor = '#856404';
-        }
-
-
-        messageArea.textContent = latestLogMessage; // ループの外で最終メッセージを設定
-        messageArea.style.color = latestMessageColor; // 色も設定
+        // ★★★ ログインロジックを再構築 ★★★
         
-        packetLogElement.scrollTop = 0; // ★修正：スクロール位置を常に最上部にする
-    }
-
-    // パケットを生成してログに追加する汎用関数
-    function sendPacket(actionType) {
-        const actionInfo = userActionsData[actionType];
-        
-        let content = '';
-        let isSensitive = false;
-        let contentPlain = '';
-        let type = actionInfo.type;
-
-        // VPNがアクティブな場合は常に暗号化済みとして扱う
-        if (connection.vpnActive) {
-            content = `[VPN Encrypted Tunnel]`;
-            isSensitive = false;
-        } else if (actionInfo.protocol === 'HTTPS') {
-            content = '[Encrypted Data]';
-            isSensitive = false;
-        } else { // HTTP (平文)
-            isSensitive = actionInfo.sensitive;
-            if (actionInfo.type === 'login') {
-                const u = usernameInput.value || 'testuser';
-                const p = passwordInput.value || 'password123';
-                contentPlain = `user:${u}, pass:${p}`;
-                content = actionInfo.content(u, p);
-            } else if (actionInfo.type === 'cc') {
-                const cc = ccInput.value || '1234-...';
-                const cvv = cvvInput.value || '123';
-                contentPlain = `CC:${cc}, CVV:${cvv}`;
-                content = actionInfo.content(cc, cvv);
-            } else {
-                content = actionInfo.content();
+        // 1. VPN利用時 (シナリオ3, 4, 6)
+        if (currentState.vpn) {
+            if (username !== 'user' || password !== 'password') {
+                document.getElementById('error-message').textContent = 'ユーザー名またはパスワードが正しくありません。';
+                document.getElementById('error-dialog').style.display = 'flex';
+                return;
             }
+            addPacketLog(userIp, vpnServerIp, 'VPN_TUNNEL', 'Encrypted Data');
+            navigateTo('mypage');
+            
+            let msg = '';
+            if (currentState.dnsPoisoning) { // シナリオ6
+                msg = '攻撃者は偽サイトへ誘導しようとしましたが、VPNがDNS問い合わせを保護したため攻撃は失敗しました！';
+                addPacketLog('攻撃者', 'SYSTEM', 'ATTACK_LOG', 'DNS偽装失敗。ターゲットはVPNを使用中。', 'log-encrypted');
+            } else { // シナリオ3, 4
+                msg = 'VPNが通信全体を暗号化したため、攻撃者は何も盗聴できませんでした。';
+            }
+            messageArea.textContent = msg;
+            return;
         }
 
-        const newPacket = {
-            time: new Date().toLocaleTimeString(),
-            sourceIp: generateRandomIp(),
-            destIp: connection.vpnActive ? generateRandomIp() : actionInfo.dest, 
-            protocol: actionInfo.protocol,
-            content: content,
-            content_plain: contentPlain,
-            sensitive: isSensitive,
-            type: type,
-            vpnActive: connection.vpnActive,
-            connectionType: connection.type
-        };
-        addPacketLog(newPacket);
+        // 2. 偽Wi-Fi(VPNなし) = フィッシングサイト (シナリオ5)
+        if (currentState.dnsPoisoning) {
+            const stolenData = `user=${username}, pass=${password}`;
+            addPacketLog(userIp, attackerFakeServerIp, 'HTTPS (Fake Cert)', stolenData, 'log-highlight');
+            navigateTo('mypage');
+            messageArea.textContent = '警告！どんなIDやパスワードでもログインできてしまいましたね。偽サイトは情報を盗むのが目的だからです！';
+            return;
+        }
+        
+        // 3. 通常のWi-Fi(VPNなし) = 本物サイト (シナリオ1, 2)
+        if (username !== 'user' || password !== 'password') {
+            document.getElementById('error-message').textContent = 'ユーザー名またはパスワードが正しくありません。';
+            document.getElementById('error-dialog').style.display = 'flex';
+            return;
+        }
+
+        navigateTo('mypage');
+        if (currentState.protocol === 'https') { // シナリオ2
+            addPacketLog(userIp, siteIp, 'HTTPS (TLS)', '[Encrypted Application Data]', 'log-encrypted');
+            messageArea.textContent = '通信内容は暗号化されているため安全ですが、攻撃者にはどこにアクセスしたかを知られています。';
+        } else { // シナリオ1
+            const stolenData = `user=${username}, pass=${password}`;
+            addPacketLog(userIp, siteIp, 'HTTP', stolenData, 'log-highlight');
+            messageArea.textContent = '警告！HTTP通信は暗号化されていないため、IDとパスワードが丸見えです！';
+        }
     }
 
-    // イベントリスナー設定
-    connectFreeWifiBtn.addEventListener('click', () => {
-        connection.type = 'free-unencrypted';
-        connection.vpnActive = false;
-        updateUI();
-        messageArea.textContent = 'Free Wi-Fi (暗号化なし) に接続しました。';
-    });
+    // --- ログ追加 & モーダル ---
+    function addPacketLog(src, dest, proto, content, highlightClass = '') {
+        const time = new Date().toLocaleTimeString();
+        const logEntry = document.createElement('div');
+        logEntry.innerHTML = `<div class="log-entry"><span class="log-time">[${time}]</span> <span class="log-source">${src}</span> &rarr; <span class="log-dest">${dest}</span><div><span class="log-protocol">${proto}:</span> <span class="log-content ${highlightClass}">${content}</span></div></div>`;
+        packetLog.appendChild(logEntry);
+        packetLog.scrollTop = packetLog.scrollHeight;
+    }
 
-    connectHomeWifiBtn.addEventListener('click', () => {
-        connection.type = 'home-encrypted';
-        connection.vpnActive = false;
-        updateUI();
-        messageArea.textContent = '自宅Wi-Fi (暗号化あり) に接続しました。';
-    });
+    function showCertModal() {
+        let title, body, explanation;
+        const isHttps = currentState.protocol === 'https';
+        const isSecureInBrowser = isHttps && (!currentState.dnsPoisoning || currentState.vpn);
 
-    toggleVpnBtn.addEventListener('click', () => {
-        connection.vpnActive = !connection.vpnActive;
-        updateUI();
-        if (connection.vpnActive) {
-            messageArea.textContent = 'VPNをONにしました。通信が保護されます。';
+        if (currentState.dnsPoisoning && !currentState.vpn) {
+            title = '警告：このサイトの証明書は信頼できません！';
+            body = `発行先: abc-app.com\n発行者: Attacker's Untrusted CA (自己署名)`;
+            explanation = '発行者が信頼できないため、偽サイトの危険性があります。';
+        } else if (isSecureInBrowser) {
+            title = 'このサイトの証明書は有効です';
+            body = `発行先: abc-app.com\n発行者: Trusted Certificate Authority`;
+            explanation = '信頼できる発行者により、サイトの身元が証明されています。';
         } else {
-            messageArea.textContent = 'VPNをOFFにしました。';
+            title = '証明書情報はありません';
+            body = 'このサイトは暗号化(HTTPS)されていません。';
+            explanation = '安全な接続ではないため、証明書は使用されていません。';
         }
-    });
-
-    loginHttpBtn.addEventListener('click', () => sendPacket('login-http'));
-    loginHttpsBtn.addEventListener('click', () => sendPacket('login-https'));
-    purchaseHttpBtn.addEventListener('click', () => sendPacket('purchase-http'));
-    purchaseHttpsBtn.addEventListener('click', () => sendPacket('purchase-https'));
-
-    applyFilterBtn.addEventListener('click', renderPacketLog);
-    clearFilterBtn.addEventListener('click', () => {
-        filterInput.value = '';
-        renderPacketLog();
-    });
-
-    resetButton.addEventListener('click', () => {
-        allLogs = [];
-        usernameInput.value = '';
-        passwordInput.value = '';
-        ccInput.value = '';
-        cvvInput.value = '';
-        filterInput.value = '';
-        initGame();
-    });
-
-    // 初期化処理
-    function initGame() {
-        connection.type = 'free-unencrypted';
-        connection.vpnActive = false;
-        allLogs = [];
-        usernameInput.value = '';
-        passwordInput.value = '';
-        ccInput.value = '';
-        cvvInput.value = '';
-        filterInput.value = '';
-        messageArea.textContent = '操作を開始してください。';
-        messageArea.style.color = '#856404';
-
-        updateUI();
-        renderPacketLog();
+        modalTitle.textContent = title;
+        modalBody.textContent = body;
+        modalExplanation.textContent = explanation;
+        modal.style.display = 'flex';
     }
 
-    initGame();
+    certStatus.addEventListener('click', showCertModal);
+    modalCloseBtn.addEventListener('click', () => modal.style.display = 'none');
+    window.addEventListener('click', (event) => {
+        if (event.target === modal) modal.style.display = 'none';
+    });
+
+    // --- 初期化 ---
+    document.querySelector('.scenario-btn[data-scenario="1"]').click();
+
+    closeDialogBtn.addEventListener('click', () => {
+        errorDialog.style.display = 'none';
+    });
 });
