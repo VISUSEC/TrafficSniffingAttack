@@ -11,8 +11,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const modalBody = document.getElementById('modal-body');
     const modalExplanation = document.getElementById('modal-explanation');
     const modalCloseBtn = document.querySelector('.modal-close-btn');
-    const errorDialog = document.getElementById('error-dialog');
-    const closeDialogBtn = document.getElementById('close-dialog-btn');
 
     // --- シナリオの定義 ---
     const scenarios = {
@@ -34,7 +32,7 @@ document.addEventListener('DOMContentLoaded', () => {
             case 'top':
                 siteContentWrapper.innerHTML = `
                     <div class="page-container">
-                        <h2>ABC App へようこそ！</h2>
+                        <h2>WHR App へようこそ！</h2>
                         <p>当サービスをご利用いただきありがとうございます。</p>
                         <a href="#" id="goto-login-btn" class="page-btn">ログインページへ</a>
                     </div>
@@ -48,14 +46,32 @@ document.addEventListener('DOMContentLoaded', () => {
                 siteContentWrapper.innerHTML = `
                     <div class="page-container login-form">
                         <h2>ログイン</h2>
-                        <label for="username">ユーザー名 (user)</label>
+                        <div id="login-error-container"></div>
+                        <label for="username">ユーザーID (user)</label>
                         <input type="text" id="username">
                         <label for="password">パスワード (password)</label>
                         <input type="text" id="password">
                         <button id="login-submit-btn" class="page-btn">ログイン</button>
+                        <div style="margin-top: 15px; display: flex; gap: 10px; justify-content: center;">
+                            <button type="button" onclick="quickFill(true)" class="quick-fill-btn">
+                                正しいID/Pass
+                            </button>
+                            <button type="button" onclick="quickFill(false)" class="quick-fill-btn">
+                                誤ったID/Pass
+                            </button>
+                        </div>
                     </div>
                 `;
                 document.getElementById('login-submit-btn').addEventListener('click', handleLogin);
+                const passBox = document.getElementById('password');
+                if (passBox) {
+                    passBox.addEventListener('keydown', function(e) {
+                        // Enterキーが押されたらログインを実行
+                        if (e.key === 'Enter') {
+                            handleLogin(); 
+                        }
+                    });
+                }
                 break;
             case 'mypage':
                 const username = (currentState.dnsPoisoning && !currentState.vpn) ? document.getElementById('username')?.value || 'user' : 'user';
@@ -68,17 +84,17 @@ document.addEventListener('DOMContentLoaded', () => {
                 break;
         }
     }
-    
+
     // --- UI更新 & ナビゲーション ---
     function updateBrowserUI() {
         const path = currentPage === 'top' ? '/' : `/${currentPage}/`;
-        const baseUrl = 'abc-app.com';
+        const baseUrl = 'app.whr.jp';
         urlText.textContent = `${currentState.protocol}://${baseUrl}${path}`;
 
         const isHttps = currentState.protocol === 'https';
         // ブラウザから見て安全か = (HTTPS接続 かつ (DNS偽装がない または VPNがある))
         const isSecureInBrowser = isHttps && (!currentState.dnsPoisoning || currentState.vpn);
-        
+
         certStatus.classList.remove('secure', 'insecure');
         if (isSecureInBrowser) {
             certStatus.textContent = '安全な通信';
@@ -98,7 +114,7 @@ document.addEventListener('DOMContentLoaded', () => {
         updateBrowserUI();
         renderPage();
     }
-    
+
     // --- イベント処理 ---
     scenarioButtons.forEach(btn => {
         btn.addEventListener('click', () => {
@@ -106,7 +122,7 @@ document.addEventListener('DOMContentLoaded', () => {
             currentState = scenarios[scenarioId];
             scenarioButtons.forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
-            
+
             packetLog.innerHTML = '';
             if (currentState.dnsPoisoning) {
                 addPacketLog('攻撃者', 'SYSTEM', 'INFO', '偽APを起動。DNS偽装を試行中...', 'log-highlight');
@@ -119,55 +135,64 @@ document.addEventListener('DOMContentLoaded', () => {
     function handleLogin() {
         const username = document.getElementById('username').value;
         const password = document.getElementById('password').value;
+        const credentials = `user=${username}, pass=${password}`;
         const userIp = '192.168.1.10', siteIp = '203.0.113.88', vpnServerIp = '198.51.100.1', attackerFakeServerIp = '10.0.0.5';
 
-        // ★★★ ログインロジックを再構築 ★★★
-        
-        // 1. VPN利用時 (シナリオ3, 4, 6)
+        // 1. リクエスト（ユーザー→サーバー）のログを記録
         if (currentState.vpn) {
-            if (username !== 'user' || password !== 'password') {
-                document.getElementById('error-message').textContent = 'ユーザー名またはパスワードが正しくありません。';
-                document.getElementById('error-dialog').style.display = 'flex';
-                return;
-            }
-            addPacketLog(userIp, vpnServerIp, 'VPN_TUNNEL', 'Encrypted Data');
-            navigateTo('mypage');
-            
-            let msg = '';
-            if (currentState.dnsPoisoning) { // シナリオ6
-                msg = '攻撃者は偽サイトへ誘導しようとしましたが、VPNがDNS問い合わせを保護したため攻撃は失敗しました！';
-                addPacketLog('攻撃者', 'SYSTEM', 'ATTACK_LOG', 'DNS偽装失敗。ターゲットはVPNを使用中。', 'log-encrypted');
-            } else { // シナリオ3, 4
-                msg = 'VPNが通信全体を暗号化したため、攻撃者は何も盗聴できませんでした。';
-            }
-            messageArea.textContent = msg;
-            return;
+            addPacketLog(userIp, vpnServerIp, 'VPN_REQUEST', 'Encrypted Data');
+        } else if (currentState.dnsPoisoning) {
+            addPacketLog(userIp, attackerFakeServerIp, 'HTTPS_REQUEST (Fake Cert)', credentials, 'log-highlight');
+        } else if (currentState.protocol === 'https') {
+            addPacketLog(userIp, siteIp, 'HTTPS_REQUEST', '[Encrypted Application Data]', 'log-encrypted');
+        } else {
+            addPacketLog(userIp, siteIp, 'HTTP_REQUEST', credentials, 'log-highlight');
         }
 
-        // 2. 偽Wi-Fi(VPNなし) = フィッシングサイト (シナリオ5)
-        if (currentState.dnsPoisoning) {
-            const stolenData = `user=${username}, pass=${password}`;
-            addPacketLog(userIp, attackerFakeServerIp, 'HTTPS (Fake Cert)', stolenData, 'log-highlight');
-            navigateTo('mypage');
-            messageArea.textContent = '警告！どんなIDやパスワードでもログインできてしまいましたね。偽サイトは情報を盗むのが目的だからです！';
-            return;
-        }
-        
-        // 3. 通常のWi-Fi(VPNなし) = 本物サイト (シナリオ1, 2)
-        if (username !== 'user' || password !== 'password') {
-            document.getElementById('error-message').textContent = 'ユーザー名またはパスワードが正しくありません。';
-            document.getElementById('error-dialog').style.display = 'flex';
-            return;
+        // 2. 認証判定
+        const isCorrectCredentials = username === 'user' && password === 'password';
+
+        // 3. レスポンス（サーバー→ユーザー）のログを記録
+        if (currentState.vpn) {
+            addPacketLog(vpnServerIp, userIp, 'VPN_RESPONSE', 'Encrypted Data');
+        } else if (currentState.dnsPoisoning) {
+            addPacketLog(attackerFakeServerIp, userIp, 'HTTPS_RESPONSE (Fake Cert)', '200 OK');
+        } else if (currentState.protocol === 'https') {
+            addPacketLog(siteIp, userIp, 'HTTPS_RESPONSE', '[Encrypted Server Response]', 'log-encrypted');
+        } else { // HTTP
+            const response = isCorrectCredentials ? '200 OK - Login Success' : '401 Unauthorized - Invalid Credentials';
+            addPacketLog(siteIp, userIp, 'HTTP_RESPONSE', response, isCorrectCredentials ? '' : 'log-highlight');
         }
 
-        navigateTo('mypage');
-        if (currentState.protocol === 'https') { // シナリオ2
-            addPacketLog(userIp, siteIp, 'HTTPS (TLS)', '[Encrypted Application Data]', 'log-encrypted');
-            messageArea.textContent = '通信内容は暗号化されているため安全ですが、攻撃者にはどこにアクセスしたかを知られています。';
-        } else { // シナリオ1
-            const stolenData = `user=${username}, pass=${password}`;
-            addPacketLog(userIp, siteIp, 'HTTP', stolenData, 'log-highlight');
-            messageArea.textContent = '警告！HTTP通信は暗号化されていないため、IDとパスワードが丸見えです！';
+        // 4. UIの更新
+        if (isCorrectCredentials || (currentState.dnsPoisoning && !currentState.vpn)) {
+            // ログイン成功 or フィッシング成功
+            navigateTo('mypage');
+            if (currentState.dnsPoisoning && !currentState.vpn) {
+                messageArea.textContent = '警告！偽サイトはどんなID/パスワードでもログイン成功に見せかけ、入力された情報を盗みます！';
+            } else if (currentState.vpn) {
+                if (currentState.dnsPoisoning) { //シナリオ6
+                    messageArea.textContent = '攻撃者は偽サイトへ誘導しようとしましたが、VPNがDNS問い合わせを保護したため攻撃は失敗しました！';
+                    addPacketLog('攻撃者', 'SYSTEM', 'ATTACK_LOG', 'DNS偽装失敗。ターゲットはVPNを使用中。', 'log-encrypted');
+                } else { //シナリオ3,4
+                    messageArea.textContent = 'VPNが通信全体を暗号化したため、攻撃者は何も盗聴できませんでした。';
+                }
+            } else if (currentState.protocol === 'https') { //シナリオ2
+                messageArea.textContent = 'ログイン成功！HTTPSのため通信は保護されていますが、アクセス先は攻撃者に知られています。';
+            } else { //シナリオ1
+                messageArea.textContent = 'ログイン成功！しかしHTTP通信だったため、IDとパスワードは攻撃者に盗まれてしまいました！';
+            }
+        } else {
+            // ログイン失敗
+            const errorContainer = document.getElementById('login-error-container');
+            if (errorContainer) {
+                errorContainer.innerHTML = `<div class="login-error">ユーザー名またはパスワードが正しくありません。</div>`;
+            }
+            if (currentState.protocol === 'http') { //シナリオ1
+                messageArea.textContent = 'ログインは失敗しましたが、HTTPのため、入力情報と「失敗した」という結果の両方が攻撃者に筒抜けです！';
+            } else { //シナリオ2,3,4,6
+                messageArea.textContent = 'ログインに失敗しました。';
+            }
         }
     }
 
@@ -187,11 +212,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (currentState.dnsPoisoning && !currentState.vpn) {
             title = '警告：このサイトの証明書は信頼できません！';
-            body = `発行先: abc-app.com\n発行者: Attacker's Untrusted CA (自己署名)`;
+            body = `発行先: app.whr.jp\n発行者: Attacker's Untrusted CA (自己署名)`;
             explanation = '発行者が信頼できないため、偽サイトの危険性があります。';
         } else if (isSecureInBrowser) {
             title = 'このサイトの証明書は有効です';
-            body = `発行先: abc-app.com\n発行者: Trusted Certificate Authority`;
+            body = `発行先: app.whr.jp\n発行者: Trusted Certificate Authority`;
             explanation = '信頼できる発行者により、サイトの身元が証明されています。';
         } else {
             title = '証明書情報はありません';
@@ -212,8 +237,23 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- 初期化 ---
     document.querySelector('.scenario-btn[data-scenario="1"]').click();
-
-    closeDialogBtn.addEventListener('click', () => {
-        errorDialog.style.display = 'none';
-    });
 });
+
+// --- 追加機能: 入力支援ボタン ---
+function quickFill(isCorrect) {
+    const idBox = document.getElementById('username'); // IDのinput要素IDに合わせて変更
+    const passBox = document.getElementById('password'); // パスワードのinput要素IDに合わせて変更
+
+    if (isCorrect) {
+        // 正しいパターン
+        idBox.value = 'user';
+        passBox.value = 'password';
+    } else {
+        // 誤ったパターン
+        idBox.value = 'admin';
+        passBox.value = '1111';
+    }
+
+    // 入力した感を出すためにパスワード欄にフォーカスを当てる（そのままEnterしやすくする）
+    passBox.focus();
+}

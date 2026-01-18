@@ -152,6 +152,14 @@ h1 { color: #0056b3; }
     cursor: pointer;
     text-decoration: none;
 }
+.quick-fill-btn{
+    background:#e0e0e0;
+    border:none;
+    padding:5px 10px;
+    cursor:pointer;
+    font-size:12px;
+    border-radius:4px;
+}
 .login-form input {
     width: 100%;
     padding: 10px;
@@ -162,6 +170,15 @@ h1 { color: #0056b3; }
 }
 .login-form .page-btn {
     width: 100%;
+}
+.login-error {
+    background-color: #f8d7da;
+    color: #721c24;
+    border: 1px solid #f5c6cb;
+    padding: 10px;
+    border-radius: 5px;
+    margin-bottom: 15px;
+    text-align: center;
 }
 
 
@@ -199,35 +216,6 @@ h1 { color: #0056b3; }
 #modal-title { margin-top: 0; }
 #modal-body { background-color: #f0f0f0; padding: 10px; border-radius: 4px; white-space: pre-wrap; font-family: 'Courier New', monospace; }
 #modal-explanation { margin-top: 15px; font-weight: bold; }
-
-.dialog {
-    display: none;
-    position: fixed;
-    z-index: 1001;
-    left: 0;
-    top: 0;
-    width: 100%;
-    height: 100%;
-    overflow: auto;
-    background-color: rgba(0,0,0,0.4);
-    justify-content: center;
-    align-items: center;
-}
-
-.dialog-content {
-    background-color: #fefefe;
-    margin: 15% auto; /* 画面中央に表示 */
-    padding: 20px;
-    border: 1px solid #888;
-    width: 80%; /* 画面サイズの80% */
-    max-width: 400px; /* 最大幅 */
-    border-radius: 8px;
-    text-align: center;
-}
-
-.dialog-content p {
-    margin-bottom: 15px;
-}
 
 .page-btn.small {
     padding: 8px 15px;
